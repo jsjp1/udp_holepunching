@@ -3,4 +3,14 @@ name = "udp_holepunching"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "server"
+path = "src/server.rs"
+
+[[bin]]
+name = "client"
+path = "src/client.rs"
+
 [dependencies]
+dotenv = "0.15.0"
+lazy_static = "1.5.0"
