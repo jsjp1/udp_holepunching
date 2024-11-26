@@ -6,11 +6,12 @@ use std::{
     time::Duration,
 };
 
-static READ_TIMEOUT: u64 = 1000;
+static READ_TIMEOUT: u64 = 100;
+static MAX_RETRIES: u32 = 3;
 
 fn main() {
     dotenv().ok();
-    let lan_test_success;
+    let mut lan_test_success = false;
 
     let (tx, rx) = std::sync::mpsc::channel();
 
@@ -61,18 +62,23 @@ fn main() {
         .unwrap();
 
     let mut buff = [0u8; 1024];
-    let receive_socket = socket_lock.lock().unwrap().try_clone().unwrap();
-    match receive_socket.recv_from(&mut buff) {
-        Ok((amt, src)) => {
-            let message: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&buff[..amt]);
-            tx.send(format!("Message from {}: {}", src, message))
-                .unwrap();
+    for attempt in 1..=MAX_RETRIES {
+        println!("Attempt {} to test LAN connection...", attempt);
 
-            lan_test_success = true;
-        }
-        Err(e) => {
-            tx.send(format!("Peer isn't in LAN: {}", e)).unwrap();
-            lan_test_success = false;
+        socket
+            .send_to(b"LAN test message", &peer_addr_priv)
+            .expect("Failed to send LAN test message");
+
+        match socket.recv_from(&mut buff) {
+            Ok((amt, src)) => {
+                let message = String::from_utf8_lossy(&buff[..amt]);
+                println!("Received message from {}: {}", src, message);
+                lan_test_success = true;
+                break;
+            }
+            Err(e) => {
+                println!("Timeout or error receiving LAN response: {}", e);
+            }
         }
     }
 
@@ -96,6 +102,13 @@ fn main() {
             }
         }
     });
+
+    // udp hole punching, send message to peer to open port
+    if lan_test_success == false {
+        socket
+            .send_to("WAN Test".as_bytes(), &peer_addr_pub)
+            .unwrap();
+    }
 
     loop {
         tx.send("Write message to peer: ".to_string()).unwrap();
