@@ -71,7 +71,7 @@ fn main() {
             lan_test_success = true;
         }
         Err(e) => {
-            tx.send(format!("{}", e)).unwrap();
+            tx.send(format!("Peer isn't in LAN: {}", e)).unwrap();
             lan_test_success = false;
         }
     }
