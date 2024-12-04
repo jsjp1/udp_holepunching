@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-static READ_TIMEOUT: u64 = 100;
+static READ_TIMEOUT: u64 = 50;
 static MAX_RETRIES: u32 = 3;
 
 fn main() {
