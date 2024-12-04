@@ -2,12 +2,40 @@ use dotenv::dotenv;
 use std::{
     io::{Read, Write},
     net::{TcpStream, UdpSocket},
-    sync::{Arc, Mutex},
     time::Duration,
 };
 
 static READ_TIMEOUT: u64 = 50;
 static MAX_RETRIES: u32 = 3;
+
+fn send_message(socket: &UdpSocket, message: &str, peer_addr: &str, try_count: u32) -> bool {
+    let mut message_send_success = false;
+
+    socket.send_to(message.as_bytes(), &peer_addr).unwrap();
+
+    let mut buff = [0u8; 1024];
+    for attempt in 1..=try_count {
+        println!("Attempt {} to test connection...", attempt);
+
+        socket
+            .send_to(message.as_bytes(), &peer_addr)
+            .expect("Failed to send test message");
+
+        match socket.recv_from(&mut buff) {
+            Ok((amt, src)) => {
+                let message = String::from_utf8_lossy(&buff[..amt]);
+                println!("Received message from {}: {}", src, message);
+                message_send_success = true;
+                break;
+            }
+            Err(e) => {
+                println!("Timeout or error receiving response: {}", e);
+            }
+        }
+    }
+
+    return message_send_success;
+}
 
 fn main() {
     dotenv().ok();
@@ -52,41 +80,21 @@ fn main() {
         .set_read_timeout(Some(Duration::from_millis(READ_TIMEOUT)))
         .unwrap();
 
-    // listening thread detach from main thread
-    let socket_lock = Arc::new(Mutex::new(udp_socket));
-
     // test LAN communication
-    let socket = socket_lock.lock().unwrap().try_clone().unwrap();
-    socket
-        .send_to("LAN test message".as_bytes(), &peer_addr_priv)
-        .unwrap();
-
-    let mut buff = [0u8; 1024];
-    for attempt in 1..=MAX_RETRIES {
-        println!("Attempt {} to test LAN connection...", attempt);
-
-        socket
-            .send_to(b"LAN test message", &peer_addr_priv)
-            .expect("Failed to send LAN test message");
-
-        match socket.recv_from(&mut buff) {
-            Ok((amt, src)) => {
-                let message = String::from_utf8_lossy(&buff[..amt]);
-                println!("Received message from {}: {}", src, message);
-                lan_test_success = true;
-                break;
-            }
-            Err(e) => {
-                println!("Timeout or error receiving LAN response: {}", e);
-            }
-        }
-    }
+    send_message(
+        &udp_socket,
+        "LAN Test Message",
+        &peer_addr_priv,
+        MAX_RETRIES,
+    );
 
     // create Receive only thread
     let tx_clone = tx.clone();
+    let receive_socket = udp_socket.try_clone().unwrap();
+
     let _ = std::thread::spawn(move || {
         let mut buff = [0u8; 1024];
-        let receive_socket = socket_lock.lock().unwrap().try_clone().unwrap();
+
         loop {
             match receive_socket.recv_from(&mut buff) {
                 Ok((amt, src)) => {
@@ -103,13 +111,10 @@ fn main() {
         }
     });
 
+    // test WAN communication
     // udp hole punching, send message to peer to open port
     // because of Restriced Cone NAT & Symmetric NAT, have to send to initial message for peer each other (for allow peer to send message)
-    if lan_test_success == false {
-        socket
-            .send_to("WAN Test".as_bytes(), &peer_addr_pub)
-            .unwrap();
-    }
+    send_message(&udp_socket, "WAN Test Message", &peer_addr_pub, MAX_RETRIES);
 
     loop {
         tx.send("Write message to peer: ".to_string()).unwrap();
@@ -118,9 +123,13 @@ fn main() {
         std::io::stdin().read_line(&mut input).unwrap();
 
         if lan_test_success == true {
-            socket.send_to(input.as_bytes(), &peer_addr_priv).unwrap();
+            udp_socket
+                .send_to(input.as_bytes(), &peer_addr_priv)
+                .unwrap();
         } else {
-            socket.send_to(input.as_bytes(), &peer_addr_pub).unwrap();
+            udp_socket
+                .send_to(input.as_bytes(), &peer_addr_pub)
+                .unwrap();
         }
     }
 }
