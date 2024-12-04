@@ -104,8 +104,7 @@ fn main() {
     });
 
     // udp hole punching, send message to peer to open port
-    // because of Restriced Cone NAT & Symmetric NAT, have to send to initial message for peer each other
-    // if both NATs are Full Cone NAT, only one side have to send to initial message
+    // because of Restriced Cone NAT & Symmetric NAT, have to send to initial message for peer each other (for allow peer to send message)
     if lan_test_success == false {
         socket
             .send_to("WAN Test".as_bytes(), &peer_addr_pub)
